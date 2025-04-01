@@ -105,37 +105,39 @@ router.post("/login", (req, res, next) => {
 
 // Google OAuth Initiation
 router.get(
-  "/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] }),
-);
-
-// Google OAuth Callback: Return JSON with token and user info (or email for registration)
-router.get(
-  "/auth/google/callback",
+  "/google/callback",
   passport.authenticate("google", {
     session: false,
     failureRedirect: "/register",
+    failureMessage: true,
   }),
   (req, res) => {
-    const user = req.user;
-    // If the user has an id, it exists in our database; generate a JWT token
-    if (user.id) {
-      const token = jwt.sign(
-        { id: user.id, email: user.email },
-        process.env.JWT_SECRET,
-        { expiresIn: "1h" },
-      );
-      res.json({ message: "Google login successful", token, user });
-    } else {
-      // User not found in our database; return the email so the frontend can proceed with registration
-      res.json({
-        message: "Google login: user not registered",
-        email: user.email,
-      });
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication failed" });
     }
-  },
-);
 
+    const { id, email } = req.user;
+    const frontendUrl = process.env.FRONTEND_URL; // New frontend page to handle login
+
+    if (id) {
+      if (!process.env.JWT_SECRET) {
+        console.error("JWT_SECRET is not set");
+        return res.status(500).json({ message: "Internal server error" });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ id, email }, process.env.JWT_SECRET, {
+        expiresIn: "1h",
+      });
+
+      // Redirect to frontend with data
+      return res.redirect(`${frontendUrl}?token=${token}&email=${email}`);
+    } else {
+      // Redirect to register page with user email
+      return res.redirect(`${frontendUrl}?message=User%20not%20registered&email=${email}`);
+    }
+  }
+);
 // Session Endpoint (for checking current session)
 router.get(
   "/session",
