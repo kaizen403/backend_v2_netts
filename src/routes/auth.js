@@ -13,40 +13,44 @@ function generateRefId() {
   const randomPart = Math.random().toString(36).substring(2, 9).toUpperCase();
   return `NETTS${randomPart}`;
 }
-
-// Registration Endpoint that returns a JWT token after creating a new user
 router.post("/register", async (req, res) => {
   try {
-    const {
-      firstName,
-      lastName,
-      email,
-      password,
-      phone,
-      state,
-      city,
-      pincode,
-    } = req.body;
+    // Destructure input from the request body.
+    // Both email and phone are now optional, but at least one must be provided.
+    let { firstName, lastName, email, password, phone, state, city, pincode } = req.body;
+
+    // Check for required fields (excluding email, which is optional, but require phone if email is missing)
     if (
       !firstName ||
       !lastName ||
-      !email ||
       !password ||
-      !phone ||
       !state ||
       !city ||
-      !pincode
+      !pincode ||
+      (!email && !phone)
     ) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({
+        error: "Missing required fields. Must provide password, firstName, lastName, state, city, pincode, and at least one of email or phone",
+      });
     }
 
+    // If email is not provided, generate a dummy email using the phone number.
+    if (!email && phone) {
+      email = `${phone}@dummy.netts.in`;
+    }
+
+    // Check if a user exists with the given email.
     let user = await prisma.user.findUnique({ where: { email } });
     if (user) {
       return res.status(400).json({ error: "Email already registered" });
     }
-    user = await prisma.user.findUnique({ where: { phone } });
-    if (user) {
-      return res.status(400).json({ error: "Phone number already registered" });
+
+    // Check if a user exists with the given phone (if provided).
+    if (phone) {
+      user = await prisma.user.findUnique({ where: { phone } });
+      if (user) {
+        return res.status(400).json({ error: "Phone number already registered" });
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -58,7 +62,7 @@ router.post("/register", async (req, res) => {
         lastName,
         email,
         password: hashedPassword,
-        phone,
+        phone: phone || "", // if phone is missing, store an empty string (ensure your schema allows this if needed)
         state,
         city,
         pincode,
@@ -67,15 +71,14 @@ router.post("/register", async (req, res) => {
       },
     });
 
-    // Generate token upon successful registration
+    // Generate a JWT token upon successful registration.
     const token = jwt.sign(
       { id: newUser.id, email: newUser.email },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" },
+      { expiresIn: "1h" }
     );
-    res
-      .status(201)
-      .json({ message: "User registered successfully", token, user: newUser });
+
+    res.status(201).json({ message: "User registered successfully", token, user: newUser });
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ error: "Registration failed" });
@@ -105,37 +108,45 @@ router.post("/login", (req, res, next) => {
 
 // Google OAuth Initiation
 router.get(
-  "/auth/google",
+  "/google",
   passport.authenticate("google", { scope: ["profile", "email"] }),
 );
 
 // Google OAuth Callback: Return JSON with token and user info (or email for registration)
 router.get(
-  "/auth/google/callback",
+  "/google/callback",
   passport.authenticate("google", {
     session: false,
     failureRedirect: "/register",
+    failureMessage: true,
   }),
   (req, res) => {
-    const user = req.user;
-    // If the user has an id, it exists in our database; generate a JWT token
-    if (user.id) {
-      const token = jwt.sign(
-        { id: user.id, email: user.email },
-        process.env.JWT_SECRET,
-        { expiresIn: "1h" },
-      );
-      res.json({ message: "Google login successful", token, user });
-    } else {
-      // User not found in our database; return the email so the frontend can proceed with registration
-      res.json({
-        message: "Google login: user not registered",
-        email: user.email,
-      });
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication failed" });
     }
-  },
-);
 
+    const { id, email } = req.user;
+    const frontendUrl = process.env.FRONTEND_URL; // New frontend page to handle login
+
+    if (id) {
+      if (!process.env.JWT_SECRET) {
+        console.error("JWT_SECRET is not set");
+        return res.status(500).json({ message: "Internal server error" });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ id, email }, process.env.JWT_SECRET, {
+        expiresIn: "1h",
+      });
+
+      // Redirect to frontend with data
+      return res.redirect(`${frontendUrl}?token=${token}&email=${email}`);
+    } else {
+      // Redirect to register page with user email
+      return res.redirect(`${frontendUrl}?message=User%20not%20registered&email=${email}`);
+    }
+  }
+);
 // Session Endpoint (for checking current session)
 router.get(
   "/session",
