@@ -15,45 +15,56 @@ function generateRefId() {
 }
 router.post("/register", async (req, res) => {
   try {
-    // Destructure input from the request body.
-    // Both email and phone are now optional, but at least one must be provided.
     let { firstName, lastName, email, password, phone, state, city, pincode } = req.body;
 
-    // Check for required fields (excluding email, which is optional, but require phone if email is missing)
-    if (
-      !firstName ||
-      !lastName ||
-      !password ||
-      !state ||
-      !city ||
-      !pincode ||
-      (!email && !phone)
-    ) {
+    // Check for common required fields
+    if (!firstName || !lastName || !state || !city || !pincode) {
       return res.status(400).json({
-        error: "Missing required fields. Must provide password, firstName, lastName, state, city, pincode, and at least one of email or phone",
+        error:
+          "Missing required fields. Must provide firstName, lastName, state, city, and pincode.",
       });
     }
 
-    // If email is not provided, generate a dummy email using the phone number.
-    if (!email && phone) {
-      email = `${phone}@dummy.netts.in`;
+    // Trim and default empty values
+    email = email ? email.trim() : "";
+    phone = phone ? phone.trim() : "";
+    password = password ? password.trim() : "";
+
+    // At least one of email or phone must be provided
+    if (!email && !phone) {
+      return res.status(400).json({ error: "Either email or phone must be provided." });
     }
 
-    // Check if a user exists with the given email.
-    let user = await prisma.user.findUnique({ where: { email } });
-    if (user) {
-      return res.status(400).json({ error: "Email already registered" });
+    // If registering with phone (local registration), password is required.
+    // Google OAuth registration is assumed when an email is provided and password is empty.
+    if (phone && !email && password === "") {
+      return res.status(400).json({ error: "Password is required when registering with phone." });
     }
 
-    // Check if a user exists with the given phone (if provided).
-    if (phone) {
-      user = await prisma.user.findUnique({ where: { phone } });
-      if (user) {
+    // Uniqueness check: If email is provided, verify it isn't already used.
+    if (email !== "") {
+      const existingEmail = await prisma.user.findUnique({ where: { email } });
+      if (existingEmail) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+    }
+
+    // Uniqueness check: If phone is provided, verify it isn't already used.
+    if (phone !== "") {
+      const existingPhone = await prisma.user.findUnique({ where: { phone } });
+      if (existingPhone) {
         return res.status(400).json({ error: "Phone number already registered" });
       }
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // For local registration, hash the password; if password is empty (Google OAuth), leave it as an empty string.
+    const hashedPassword = password !== "" ? await bcrypt.hash(password, 10) : "";
+
+    // If only phone is provided (local registration), generate a dummy email.
+    if (!email && phone) {
+      email = `${phone}@dummy.netts.in`;
+    }
+
     const refId = generateRefId();
 
     const newUser = await prisma.user.create({
@@ -62,7 +73,7 @@ router.post("/register", async (req, res) => {
         lastName,
         email,
         password: hashedPassword,
-        phone: phone || "", // if phone is missing, store an empty string (ensure your schema allows this if needed)
+        phone,
         state,
         city,
         pincode,
@@ -78,7 +89,11 @@ router.post("/register", async (req, res) => {
       { expiresIn: "1h" }
     );
 
-    res.status(201).json({ message: "User registered successfully", token, user: newUser });
+    res.status(201).json({
+      message: "User registered successfully",
+      token,
+      user: newUser,
+    });
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ error: "Registration failed" });
@@ -140,12 +155,14 @@ router.get(
       });
 
       // Redirect to frontend with data
-      return res.redirect(`${frontendUrl}?token=${token}&email=${email}`);
+      return res.redirect(`${frontendUrl}/login?token=${token}&email=${email}`);
     } else {
       // Redirect to register page with user email
-      return res.redirect(`${frontendUrl}?message=User%20not%20registered&email=${email}`);
+      return res.redirect(
+        `${frontendUrl}/register?message=User%20not%20registered&email=${email}`,
+      );
     }
-  }
+  },
 );
 // Session Endpoint (for checking current session)
 router.get(
