@@ -17,53 +17,46 @@ router.post("/register", async (req, res) => {
   try {
     let { firstName, lastName, email, password, phone, state, city, pincode } = req.body;
 
-    // Check for common required fields
+    // Required common fields.
     if (!firstName || !lastName || !state || !city || !pincode) {
       return res.status(400).json({
-        error:
-          "Missing required fields. Must provide firstName, lastName, state, city, and pincode.",
+        error: "Missing required fields. Must provide firstName, lastName, state, city, and pincode.",
       });
     }
 
-    // Trim and default empty values
-    email = email ? email.trim() : "";
-    phone = phone ? phone.trim() : "";
-    password = password ? password.trim() : "";
+    // Convert optional fields to trimmed values or null.
+    email = email && email.trim() !== "" ? email.trim() : null;
+    phone = phone && phone.trim() !== "" ? phone.trim() : null;
+    password = password && password.trim() !== "" ? password.trim() : null;
 
-    // At least one of email or phone must be provided
+    // At least one of email or phone must be provided.
     if (!email && !phone) {
       return res.status(400).json({ error: "Either email or phone must be provided." });
     }
 
-    // If registering with phone (local registration), password is required.
-    // Google OAuth registration is assumed when an email is provided and password is empty.
-    if (phone && !email && password === "") {
-      return res.status(400).json({ error: "Password is required when registering with phone." });
+    // For local registration (using phone only) require password.
+    if (phone && !email && !password) {
+      return res.status(400).json({ error: "Password is required when registering with phone only." });
     }
 
-    // Uniqueness check: If email is provided, verify it isn't already used.
-    if (email !== "") {
+    // Uniqueness check for email (if provided)
+    if (email) {
       const existingEmail = await prisma.user.findUnique({ where: { email } });
       if (existingEmail) {
         return res.status(400).json({ error: "Email already registered" });
       }
     }
 
-    // Uniqueness check: If phone is provided, verify it isn't already used.
-    if (phone !== "") {
+    // Uniqueness check for phone (if provided)
+    if (phone) {
       const existingPhone = await prisma.user.findUnique({ where: { phone } });
       if (existingPhone) {
         return res.status(400).json({ error: "Phone number already registered" });
       }
     }
 
-    // For local registration, hash the password; if password is empty (Google OAuth), leave it as an empty string.
-    const hashedPassword = password !== "" ? await bcrypt.hash(password, 10) : "";
-
-    // If only phone is provided (local registration), generate a dummy email.
-    if (!email && phone) {
-      email = `${phone}@dummy.netts.in`;
-    }
+    // Hash the password if provided.
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : "";
 
     const refId = generateRefId();
 
@@ -71,9 +64,9 @@ router.post("/register", async (req, res) => {
       data: {
         firstName,
         lastName,
-        email,
+        email,       // May be null.
         password: hashedPassword,
-        phone,
+        phone,       // May be null.
         state,
         city,
         pincode,
@@ -96,10 +89,9 @@ router.post("/register", async (req, res) => {
     });
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(500).json({ error: "Registration failed" });
+    res.status(500).json({ error: "Registration failed", details: error.message });
   }
 });
-
 // Local Login Endpoint using phone
 router.post("/login", (req, res, next) => {
   passport.authenticate(
