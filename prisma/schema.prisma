@@ -35,4 +35,11 @@ model PreBooking {
   updatedAt    DateTime @updatedAt
 }
 
-
+model Dealership {
+  id          Int     @id @default(autoincrement())
+  company     String
+  phno        String
+  email       String  @unique
+  address     String
+  description String?
+}

@@ -8,6 +8,10 @@ import authRoutes from "./routes/auth.js";
 import bookingRoutes from "./routes/booking.js";
 import "./config/passport.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
 dotenv.config();
 
 const app = express();
@@ -34,6 +38,29 @@ app.use(passport.session());
 app.use("/api/auth", authRoutes);
 app.use("/api/booking", bookingRoutes);
 app.use("/admin", adminRoutes);
+app.post("/dealership", async (req, res) => {
+  try {
+    const { company, phno, email, address, description } = req.body;
+
+    const newDealership = await prisma.dealership.create({
+      data: {
+        company,
+        phno,
+        email,
+        address,
+        description, // This field is optional
+      },
+    });
+
+    res.status(201).json(newDealership);
+  } catch (error) {
+    console.error("Error creating dealership:", error);
+    res.status(500).json({
+      error: "An error occurred while creating the dealership.",
+      details: error.message,
+    });
+  }
+});
 // Commented out: WebSocket and Kafka initialization
 // import { initSocketServer } from "./socket/socketServer.js";
 // import { startConsumer } from "./kafka/consumer.js";
