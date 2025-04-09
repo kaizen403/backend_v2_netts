@@ -18,6 +18,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "google-auth-library": "^9.15.1",
     "influx": "^5.9.7",
     "jsonwebtoken": "^9.0.2",
     "kafkajs": "^2.2.4",

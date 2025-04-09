@@ -4,10 +4,12 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import { prisma } from "../prismaClient.js";
+import { OAuth2Client } from "google-auth-library";
 
 dotenv.config();
 
 const router = express.Router();
+const googleClient = new OAuth2Client();
 
 function generateRefId() {
   const randomPart = Math.random().toString(36).substring(2, 9).toUpperCase();
@@ -156,6 +158,70 @@ router.get(
     }
   },
 );
+
+
+router.post("/google-phone-auth", async (req, res) => {
+  const { email, accessToken } = req.body;
+
+  if (!email || !accessToken) {
+    return res.status(400).json({ message: "Email and accessToken are required" });
+  }
+
+  try {
+    // Step 1: Verify Google Access Token
+    const tokenInfo = await googleClient.getTokenInfo(accessToken);
+
+    if (!tokenInfo || tokenInfo.email !== email) {
+      return res.status(401).json({ message: "Invalid or mismatched access token" });
+    }
+
+    // Step 2: Check if user exists in DB
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        state: true,
+        city: true,
+        pincode: true,
+        refId: true,
+        coins: true,
+      },
+    });
+
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not set");
+      return res.status(500).json({ message: "Server error" });
+    }
+
+    if (user) {
+      // Step 3: Generate 30-day JWT
+      const token = jwt.sign(
+        { id: user.id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: "30d" }
+      );
+
+      return res.status(201).json({
+        message: "User exists, proceed to login",
+        token,
+        user,
+      });
+    } else {
+      return res.status(202).json({
+        message: "User not found, proceed to registration",
+        email,
+      });
+    }
+  } catch (error) {
+    console.error("Phone Auth Error:", error);
+    return res.status(401).json({ message: "Unauthorized: Invalid access token" });
+  }
+});
+
 // Session Endpoint (for checking current session)
 router.get(
   "/session",
